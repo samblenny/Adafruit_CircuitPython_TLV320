@@ -1,4 +1,5 @@
 # SPDX-FileCopyrightText: 2025 Liz Clark for Adafruit Industries
+# SPDX-FileCopyrightText: 2025 Sam Blenny
 #
 # SPDX-License-Identifier: MIT
 """
@@ -103,6 +104,26 @@ volume test example: `Volume test <./examples.html#volume-test>`_
     #
     # CAUTION: This will be *way* too loud for earbuds, please be careful!
     dac.headphone_volume = -15.5  # default is -30.1 dB
+
+5 MHz PWM Clock to I2S_MCLK for Better Audio Quality
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+If you want to use lower sample rates to save RAM and CPU, you can get better
+audio quality by supplying a 5 MHz clock to the I2S_MCLK pin with PWMOut. For
+example, this lets you get very good audio quality (at limited bandwidth) using
+8 kHz WAV file samples.
+
+::
+
+    sample_rate = 8000  # can also use 11025, 22050, 44100, or 48000
+    dac = TLV320DAC3100(board.I2C())
+    mclk_out = pwmio.PWMOut(board.I2S_MCLK, frequency=5_000_000, duty_cycle=2**15)
+    dac.configure_clocks(sample_rate=sample_rate, bit_depth=16, mclk_freq=5_000_000)
+    dac.speaker_output = False
+    dac.headphone_output = True
+    dac.headphone_volume = -6    # CAUTION! Line level. Too loud for headphones!
+    audio = audiobusio.I2SOut(bit_clock=board.I2S_BCLK, word_select=board.I2S_WS,
+        data=board.I2S_DIN)
 
 API
 ---
@@ -794,13 +815,10 @@ class _Page0Registers(_PagedRegisterBase):
         self._write_register(_CODEC_IF_CTRL1, value)
 
     def _configure_clocks_for_sample_rate(self, mclk_freq: int, sample_rate: int, bit_depth: int):
-        """Clock settings for the specified sample rate.
+        # For sphinx docs, see configure_clocks() which wraps this function.
+        #
+        # Only difference is this checks mclk_freq==0 instead of None.
 
-        :param mclk_freq: The main clock frequency in Hz, or 0 to use BCLK as PLL input
-        :param sample_rate: The desired sample rate in Hz
-        :param bit_depth: The bit depth (16, 20, 24, or 32)
-        :return: True if successful, False otherwise
-        """
         if bit_depth == 16:
             data_len = DATA_LEN_16
         elif bit_depth == 20:
@@ -811,6 +829,7 @@ class _Page0Registers(_PagedRegisterBase):
             data_len = DATA_LEN_32
 
         if mclk_freq == 0:
+            # Use BCLK as the PLL clock source (works but Not Recommended!)
             self._set_bits(_CLOCK_MUX1, 0x03, 2, 0b01)
             self._set_bits(_CLOCK_MUX1, 0x03, 0, 0b11)
             p, r, j, d = 1, 3, 20, 0
@@ -834,63 +853,35 @@ class _Page0Registers(_PagedRegisterBase):
             self._set_bits(_PLL_PROG_PR, 0x01, 7, 1)
             time.sleep(0.01)
 
-        elif mclk_freq % (128 * sample_rate) == 0:
-            div_ratio = mclk_freq // (128 * sample_rate)
-            self._set_bits(_CLOCK_MUX1, 0x03, 0, 0b00)
-            self._set_bits(_PLL_PROG_PR, 0x01, 7, 0)
-            if div_ratio <= 128:
-                self._write_register(_NDAC, 0x80 | (div_ratio & 0x7F))
-                self._write_register(_MDAC, 0x81)
-                self._write_register(_DOSR_MSB, 0)
-                self._write_register(_DOSR_LSB, 128)
-                self._set_codec_interface(FORMAT_I2S, data_len)
-
-        elif mclk_freq == 12000000:
-            if sample_rate == 22050:
-                p, r, j, d = 1, 1, 7, 6144
-                ndac = 8
-                mdac = 1
-                dosr = 128
+        elif mclk_freq == 5_000_000:
+            # Use MCLK as the PLL clock source. To make this work, you need to
+            # drive I2S_MCLK with a 5 MHz, 50% duty cycle pwmio.PWMOut.
+            #
+            # NOTE: DOSR controls the oversampling rate. Slower clock rates
+            # need higher oversampling to shift the delta-sigma modulator
+            # quantization noise up out of the audible frequency range. See
+            # datahseet section 6.3.8.
+            #
+            # The constants here come from running a brute force solver to
+            # satisfy the constraints in the datasheet while exactly converting
+            # the PLL input clock to the necessary clock for oversampling
+            # (sample rate * DOSR). By exactly matching the right frequency,
+            # it's possible to _dramatically_ reduce the noise floor and
+            # harmonic distortion of the DAC output.
+            #
+            if sample_rate == 8000:
+                p, r, j, d, ndac, mdac, dosr = 1, 3,  6, 9632, 17, 1, 768
+            elif sample_rate == 11025:
+                p, r, j, d, ndac, mdac, dosr = 5, 2, 53, 6256, 19, 1, 512
+            elif sample_rate == 22050:
+                p, r, j, d, ndac, mdac, dosr = 5, 2, 53, 6256, 19, 1, 256
             elif sample_rate == 44100:
-                p, r, j, d = 1, 1, 7, 6144
-                ndac = 4
-                mdac = 1
-                dosr = 128
+                p, r, j, d, ndac, mdac, dosr = 5, 2, 53, 6256, 19, 1, 128
             elif sample_rate == 48000:
-                p, r, j, d = 1, 1, 8, 0
-                ndac = 4
-                mdac = 1
-                dosr = 128
-            elif sample_rate == 96000:
-                p, r, j, d = 1, 1, 8, 0
-                ndac = 2
-                mdac = 1
-                dosr = 128
+                p, r, j, d, ndac, mdac, dosr = 1, 3,  6, 9632, 17, 1, 128
             else:
-                raise ValueError("Need a valid sample rate: 22050, 44100, 48000 or 96000")
+                raise ValueError("Need a valid sample rate: 8000, 11025, 22050, 44100, or 48000")
 
-        elif mclk_freq == 24000000:
-            if sample_rate == 44100:
-                p, r, j, d = 1, 2, 7, 6144
-                ndac = 4
-                mdac = 1
-                dosr = 128
-            elif sample_rate == 48000:
-                p, r, j, d = 1, 2, 8, 0
-                ndac = 4
-                mdac = 1
-                dosr = 128
-            elif sample_rate == 96000:
-                p, r, j, d = 1, 2, 8, 0
-                ndac = 2
-                mdac = 1
-                dosr = 128
-            else:
-                raise ValueError("Need a valid sample rate: 44100, 48000 or 96000")
-        else:
-            raise ValueError("Need a valid MCLK frequency: 12MHz, 24MHz or 0 for BCLK")
-
-        if mclk_freq != 0:
             self._set_bits(_CLOCK_MUX1, 0x03, 2, 0b00)
             self._set_bits(_CLOCK_MUX1, 0x03, 0, 0b11)
             pr_value = ((p & 0x07) << 4) | (r & 0x0F)
@@ -905,6 +896,9 @@ class _Page0Registers(_PagedRegisterBase):
             self._set_codec_interface(FORMAT_I2S, data_len)
             self._set_bits(_PLL_PROG_PR, 0x01, 7, 1)
             time.sleep(0.01)
+
+        else:
+            raise ValueError("Need a valid MCLK frequency: 12MHz, 24MHz or 0 for BCLK")
 
 
 class _Page1Registers(_PagedRegisterBase):
@@ -2104,10 +2098,12 @@ class TLV320DAC3100:
         This function configures all necessary clock settings including PLL, dividers,
         and interface settings to achieve the requested sample rate.
 
-        :param sample_rate: The desired sample rate in Hz (e.g., 44100, 48000)
-        :param bit_depth: The bit depth (16, 20, 24, or 32), defaults to 16
-        :param mclk_freq: The main clock frequency in Hz (e.g., 12000000 for 12MHz)
-                         If None (default), BCLK will be used as the PLL input source
+        :param sample_rate: The desired sample rate in Hz (8000, 11025, 22050,
+            44100, or 48000)
+        :param bit_depth: The bit depth (16, 20, 24, or 32)
+        :param mclk_freq: The main clock frequency in Hz. Set this to 5_000_000
+            when supplying a 5 MHz PWM square wave into MCLK. If None (the
+            default), use BCLK as the PLL input.
         :return: True if successful, False otherwise
         """
         self._sample_rate = sample_rate
