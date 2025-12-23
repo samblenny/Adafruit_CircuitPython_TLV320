@@ -29,7 +29,7 @@ Fruit Jam sample rates demo
 ---------------------------
 
 Try different sample rates on a Fruit Jam board using pwmio.PWMOut to send a
-5 MHz clock to I2S_MCLK.
+15 MHz clock to I2S_MCLK.
 
 .. literalinclude:: ../examples/sample_rates_demo.py
     :caption: examples/sample_rates_demo.py

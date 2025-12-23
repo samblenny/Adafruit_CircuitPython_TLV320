@@ -105,11 +105,11 @@ volume test example: `Volume test <./examples.html#volume-test>`_
     # CAUTION: This will be *way* too loud for earbuds, please be careful!
     dac.headphone_volume = -15.5  # default is -30.1 dB
 
-5 MHz PWM Clock to I2S_MCLK for Better Audio Quality
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+15 MHz PWM Clock to I2S_MCLK for Better Audio Quality
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 If you want to use lower sample rates to save RAM and CPU, you can get better
-audio quality by supplying a 5 MHz clock to the I2S_MCLK pin with PWMOut. For
+audio quality by supplying a 15 MHz clock to the I2S_MCLK pin with PWMOut. For
 example, this lets you get very good audio quality (at limited bandwidth) using
 8 kHz WAV file samples.
 
