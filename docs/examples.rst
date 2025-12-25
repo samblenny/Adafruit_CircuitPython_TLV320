@@ -28,8 +28,7 @@ Test tone generator with interactive serial console volume controls.
 Fruit Jam sample rates demo
 ---------------------------
 
-Try different sample rates on a Fruit Jam board using pwmio.PWMOut to send a
-15 MHz clock to I2S_MCLK.
+Try different sample rates and PLL clocking options on a Fruit Jam board.
 
 .. literalinclude:: ../examples/sample_rates_demo.py
     :caption: examples/sample_rates_demo.py
