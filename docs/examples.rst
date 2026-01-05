@@ -19,8 +19,17 @@ Demos advanced features of the library.
 Volume test
 -----------
 
-Test tone generator with interactive serial console volume controls
+Test tone generator with interactive serial console volume controls.
 
 .. literalinclude:: ../examples/tlv320_volumetest.py
     :caption: examples/tlv320_volumetest.py
+    :linenos:
+
+Fruit Jam sample rates demo
+---------------------------
+
+Try different sample rates and PLL clocking options on a Fruit Jam board.
+
+.. literalinclude:: ../examples/sample_rates_demo.py
+    :caption: examples/sample_rates_demo.py
     :linenos:
